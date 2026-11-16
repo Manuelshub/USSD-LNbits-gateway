@@ -58,6 +58,9 @@ echo "Mining..."
 btc loadwallet miner >/dev/null 2>&1 || btc createwallet miner >/dev/null 2>&1 || true
 MINER=$(btc -rpcwallet=miner getnewaddress)
 if [ "$(btc getblockcount)" -lt 101 ]; then mine 101; fi
+# LND reports "not synced" while the newest block is hours old, which is
+# always the case when the stack is restarted later. A fresh block fixes it.
+mine 1
 
 synced() { [ "$($1 getinfo | jq -r .synced_to_chain)" = "true" ]; }
 wait_for "lnd-operator to sync" synced op
