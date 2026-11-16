@@ -52,3 +52,19 @@ Thumbs.db
 
 # Exported AI chat transcripts (private)
 New Session.md
+
+# Local project-management notes (not published)
+AGENTS.md
+issues/
+docs/STATE.md
+docs/RUBRIC.md
+docs/MILESTONES.md
+docs/DECISIONS.md
+docs/DEMO.md
+docs/hackathon-overview.md
+docs/benchmark/
+docs/research/
+docs/dev-notes/
+docs/ARCHITECTURE.md
+docs/PITCH.md
+docs/EVIDENCE.md

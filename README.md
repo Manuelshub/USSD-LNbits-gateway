@@ -6,9 +6,17 @@ Dial a shortcode such as `*384*96#`, pick English or French, set a PIN, and you 
 
 Built for the [Dakar Bitcoin Hack 2026](https://dakar-bitcoin-hack-2026.devpost.com/) (BTrust).
 
+![Awa sends Moussa 500 sats by phone number over USSD; his balance and SMS update](docs/img/demo-send.png)
+
 ## The problem
 
-Hundreds of millions of people in Africa use feature phones: voice, SMS and USSD, no internet. Every Lightning wallet assumes a smartphone and a data plan, so the people who would gain most from cheap, borderless payments (market vendors, rural families receiving remittances) are left out.
+Every Lightning wallet assumes a smartphone and a data plan. Many of the people who would gain most from cheap, borderless payments don't have one:
+
+- **About 4 in 10 people in Senegal don't use the internet**: 60.6 % penetration at the start of 2025, roughly 7 million people offline ([DataReportal, Digital 2025: Senegal](https://datareportal.com/reports/digital-2025-senegal)).
+- **Across Sub-Saharan Africa, 65 % of people live within mobile-internet coverage but don't use it** (2024, GSMA via [TechAfrica News](https://techafricanews.com/2025/09/18/65-of-sub-saharan-africa-are-still-offline-despite-coverage-a-look-at-the-connectivity-paradox/)). Cost of a smartphone and data is a main reason ([GSMA, State of Mobile Internet Connectivity 2025](https://www.gsma.com/somic/wp-content/uploads/2025/11/The-State-of-Mobile-Internet-Connectivity-2025-Affordability-of-Internet-Enabled-Handsets-and-Data.pdf)).
+- **Sending $200 to Sub-Saharan Africa costs 8.46 % on average**, the most expensive region in the world (World Bank Remittance Prices Worldwide, Q3 2025, via [African Exponent](https://www.africanexponent.com/chart-of-the-day-sending-200-home-to-sub-saharan-africa-costs-8-46-percent/)).
+
+Those people already use USSD every day for mobile money. This puts Lightning on the same `*code#` menus: market vendors, and families receiving money from relatives abroad, can be paid from any Lightning wallet in the world.
 
 ## What it does
 
@@ -43,7 +51,7 @@ Feature phone ──USSD──▶ Africa's Talking ──HTTPS POST /ussd?key=�
 Any Lightning wallet ──pays 221771234567@domain (LNURL-pay)──▶ Gateway
 ```
 
-Each keypress is one HTTP request. The gateway is stateless; sessions and phone wallets live in Redis. Details, sequence diagrams and the threat model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Each keypress is one HTTP request. The gateway is stateless; sessions and phone wallets live in Redis.
 
 **Stack:** Python 3.12, FastAPI, Redis, LNbits 1.6 on LND 0.18, Bitcoin Core 27 (regtest), Africa's Talking (USSD + SMS), Docker Compose.
 
@@ -65,6 +73,8 @@ That one command (about 40 seconds on a fresh clone) starts a private **regtest*
 - `.env` with an operator wallet and demo settings, then a real Lightning payment into it as a smoke test
 
 Open **http://localhost:8000/demo**: feature phones side by side, the Lightning channel with its live balances, an outside-world wallet that pays Lightning addresses, and a feed of everything that happens.
+
+![An outside Lightning wallet pays Awa's Lightning address; the steps tick off and she gets an SMS in French](docs/img/demo-receive.png)
 
 Demo script:
 1. **Add a phone** with your own number (any country; local Senegalese numbers need no +221), then a second one. Each phone dials as soon as it is added, and a new number creates its own wallet: language, PIN, PIN again. Awa and Moussa are one-click presets.
@@ -98,8 +108,6 @@ All settings are listed in [.env.example](.env.example).
 - Read-only invoice key for everything except paying.
 - Phone numbers are masked in every log line (including HTTP access logs); raw USSD input is never logged because it contains PINs; API keys are masked.
 - The paid-invoice webhook uses a secret path and re-checks the payment with LNbits before sending an SMS.
-
-Full threat model and remaining gaps: [docs/ARCHITECTURE.md §7](docs/ARCHITECTURE.md#7-security).
 
 ## Tests
 
