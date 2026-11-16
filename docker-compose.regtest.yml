@@ -1,0 +1,90 @@
+# Real Lightning on a private regtest network, no real money.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.regtest.yml up -d
+#   scripts/regtest_bootstrap.sh      # mine, fund, open channels (once)
+#
+# - bitcoind (regtest) and two LND nodes:
+#     lnd-operator  funding source of LNbits: the USSD operator's node
+#     lnd-world     "the rest of the Lightning network": pays Lightning
+#                   addresses and receives cash-outs, over a real channel
+# - LNbits runs on lnd-operator through LND REST instead of FakeWallet.
+#
+# The RPC credentials below only protect a local throwaway regtest chain.
+
+x-lnd: &lnd
+  image: polarlightning/lnd:0.18.3-beta
+  restart: unless-stopped
+  depends_on:
+    - bitcoind
+  networks:
+    - ussd-network
+
+services:
+  bitcoind:
+    image: polarlightning/bitcoind:27.0
+    restart: unless-stopped
+    command: >-
+      bitcoind -server=1 -regtest=1
+      -rpcuser=regtest -rpcpassword=regtest
+      -rpcbind=0.0.0.0 -rpcallowip=0.0.0.0/0 -rpcport=18443
+      -zmqpubrawblock=tcp://0.0.0.0:28334 -zmqpubrawtx=tcp://0.0.0.0:28335
+      -txindex=1 -dnsseed=0 -upnp=0 -listen=1 -listenonion=0
+      -fallbackfee=0.0002
+    volumes:
+      - bitcoind_data:/home/bitcoin/.bitcoin
+    networks:
+      - ussd-network
+
+  lnd-operator:
+    <<: *lnd
+    command: >-
+      lnd --noseedbackup --alias=ussd-operator
+      --externalip=lnd-operator --tlsextradomain=lnd-operator
+      --listen=0.0.0.0:9735 --rpclisten=0.0.0.0:10009 --restlisten=0.0.0.0:8080
+      --bitcoin.active --bitcoin.regtest --bitcoin.node=bitcoind
+      --bitcoind.rpchost=bitcoind:18443 --bitcoind.rpcuser=regtest --bitcoind.rpcpass=regtest
+      --bitcoind.zmqpubrawblock=tcp://bitcoind:28334 --bitcoind.zmqpubrawtx=tcp://bitcoind:28335
+      --trickledelay=1000 --maxpendingchannels=10
+    volumes:
+      - lnd_operator:/home/lnd/.lnd
+
+  lnd-world:
+    <<: *lnd
+    command: >-
+      lnd --noseedbackup --alias=outside-world
+      --externalip=lnd-world --tlsextradomain=lnd-world
+      --listen=0.0.0.0:9735 --rpclisten=0.0.0.0:10009 --restlisten=0.0.0.0:8080
+      --bitcoin.active --bitcoin.regtest --bitcoin.node=bitcoind
+      --bitcoind.rpchost=bitcoind:18443 --bitcoind.rpcuser=regtest --bitcoind.rpcpass=regtest
+      --bitcoind.zmqpubrawblock=tcp://bitcoind:28334 --bitcoind.zmqpubrawtx=tcp://bitcoind:28335
+      --trickledelay=1000 --maxpendingchannels=10
+    volumes:
+      - lnd_world:/home/lnd/.lnd
+
+  lnbits:
+    depends_on:
+      - lnd-operator
+    environment:
+      # Settings come from this file, not the LNbits database.
+      - LNBITS_ADMIN_UI=false
+      - LNBITS_BACKEND_WALLET_CLASS=LndRestWallet
+      - LND_REST_ENDPOINT=https://lnd-operator:8080
+      - LND_REST_CERT=/lnd-operator/tls.cert
+      - LND_REST_MACAROON=/lnd-operator/data/chain/bitcoin/regtest/admin.macaroon
+    volumes:
+      - lnd_operator:/lnd-operator:ro
+
+  gateway:
+    environment:
+      # Demo-only "outside world" wallet: pays Lightning addresses, issues
+      # cash-out invoices. Never set these in production.
+      - WORLD_LND_REST=https://lnd-world:8080
+      - WORLD_LND_CERT=/lnd-world/tls.cert
+      - WORLD_LND_MACAROON=/lnd-world/data/chain/bitcoin/regtest/admin.macaroon
+    volumes:
+      - lnd_world:/lnd-world:ro
+
+volumes:
+  bitcoind_data:
+  lnd_operator:
+  lnd_world:

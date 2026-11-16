@@ -1,0 +1,80 @@
+services:
+  # USSD Gateway Service
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - LNBITS_URL=${LNBITS_URL:-http://lnbits:5000}
+      - LNBITS_WALLET_ID=${LNBITS_WALLET_ID}
+      - LNBITS_ADMIN_KEY=${LNBITS_ADMIN_KEY}
+      - LNBITS_INVOICE_KEY=${LNBITS_INVOICE_KEY}
+      - AT_USERNAME=${AT_USERNAME:-sandbox}
+      - AT_API_KEY=${AT_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - SESSION_TIMEOUT=${SESSION_TIMEOUT:-90}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEMO_MODE=${DEMO_MODE:-false}
+      - PUBLIC_URL=${PUBLIC_URL:-}
+      - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-221}
+      - USSD_CALLBACK_SECRET=${USSD_CALLBACK_SECRET:-}
+      - WEBHOOK_BASE_URL=${WEBHOOK_BASE_URL:-http://gateway:8000}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-true}
+      - AT_SENDER_ID=${AT_SENDER_ID:-}
+      - USSD_CODE=${USSD_CODE:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      lnbits:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - ussd-network
+
+  # Redis for session management
+  redis:
+    image: redis:7-alpine
+    # No host port published: the gateway reaches Redis over the compose
+    # network, and publishing 6379 collides with any local Redis.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ussd-network
+
+  # LNbits instance
+  lnbits:
+    image: lnbits/lnbits:latest
+    ports:
+      - "5000:5000"
+    environment:
+      - LNBITS_BACKEND_WALLET_CLASS=FakeWallet
+      - LNBITS_DATA_FOLDER=/data
+      # Paid-invoice webhooks go to the gateway on the compose network. Allow
+      # only that host (the default rules require a public domain).
+      - 'LNBITS_CALLBACK_URL_RULES=["https?://gateway(:\\d+)?(/.*)?", "https?://([a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})(:\\d+)?"]'
+      - LNBITS_CALLBACK_ALLOW_PRIVATE_IPS=true
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:5000/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s
+    volumes:
+      - lnbits_data:/data
+    networks:
+      - ussd-network
+
+networks:
+  ussd-network:
+    driver: bridge
+
+volumes:
+  lnbits_data:

@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lightning over USSD</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ctext y=%2214%22 font-size=%2214%22%3E⚡%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg:#0b0f17; --panel:#121826; --panel2:#182033; --line:#263049; --ink:#e9edf5; --mute:#8a94ab;
+    --btc:#f7931a; --ok:#33d17a; --bad:#ff6b6b; --lcd:#b9d59c; --lcdink:#1d2a12; --info:#7aa2ff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px 24px; align-items:center; justify-content:space-between; padding:16px 24px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:20px; letter-spacing:-.01em; }
+  header h1 b { color:var(--btc); }
+  header p { margin:2px 0 0; color:var(--mute); font-size:13px; }
+  .badges { display:flex; gap:8px; flex-wrap:wrap; }
+  .badge { font:12px ui-monospace,Menlo,monospace; padding:5px 10px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); color:var(--mute); }
+  .badge.live { color:var(--ok); border-color:#1f5c3b; }
+  .badge.live::before { content:"●"; margin-right:6px; animation:blink 1.6s infinite; }
+  .badge.warn { color:var(--btc); }
+  @keyframes blink { 50% { opacity:.25; } }
+
+  .layout { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:20px; padding:20px 24px 32px; max-width:1500px; margin:0 auto; }
+  @media (max-width:1100px) { .layout { grid-template-columns:1fr; } }
+  @media (max-width:520px) { .layout { padding:16px; } header { padding:14px 16px; } }
+
+  .left { display:flex; flex-direction:column; gap:20px; min-width:0; }
+  .addform { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) auto; gap:8px; }
+  @media (max-width:640px) { .addform { grid-template-columns:1fr; } }
+  .addform input { background:#10151f; color:var(--ink); border:1px solid #3b4460; border-radius:8px; padding:9px 10px; font:14px system-ui,sans-serif; min-width:0; }
+  .presets { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; font-size:13px; color:var(--mute); }
+  .formmsg { min-height:18px; margin-top:8px; font-size:13px; }
+  .formmsg.err { color:var(--bad); } .formmsg.ok { color:var(--ok); }
+  .empty { grid-column:1 / -1; text-align:center; padding:40px 16px; border:1px dashed var(--line); border-radius:16px; color:var(--mute); }
+  .who .remove { background:none; border:1px solid var(--line); color:var(--mute); border-radius:8px; padding:2px 8px; cursor:pointer; font-size:12px; }
+  .who .remove:hover { color:var(--bad); border-color:var(--bad); }
+  .user.flash .phone { box-shadow:0 0 0 3px var(--btc), 0 14px 40px #0009; }
+  .phones { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; align-items:start; }
+  @media (max-width:640px) { .phones { grid-template-columns:1fr; } }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px; }
+  .card h2 { margin:0 0 12px; font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--mute); font-weight:600; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .stack { display:flex; flex-direction:column; gap:20px; }
+
+  /* feature phone */
+  .user { display:flex; flex-direction:column; gap:12px; }
+  .who { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .who strong { font-size:16px; }
+  .who span { color:var(--mute); font:12px ui-monospace,monospace; }
+  .phone { background:linear-gradient(160deg,#323a50,#232a3c); border-radius:34px; padding:20px 16px 18px; box-shadow:0 14px 40px #0009, inset 0 1px 0 #ffffff14; position:relative; }
+  .speaker { width:54px; height:5px; border-radius:3px; background:#151a26; margin:0 auto 12px; }
+  .lcd { background:var(--lcd); color:var(--lcdink); border-radius:8px; padding:9px 11px; height:178px; font:13.5px/1.34 ui-monospace,Menlo,monospace; white-space:pre-wrap; overflow:hidden; box-shadow:inset 0 0 14px #0005; position:relative; }
+  .lcd.idle { display:flex; align-items:center; justify-content:center; text-align:center; color:#3c5228; }
+  .toast { position:absolute; left:6px; right:6px; bottom:6px; background:#1d2a12; color:var(--lcd); border-radius:6px; padding:6px 8px; font-size:11.5px; line-height:1.3; transform:translateY(130%); transition:transform .35s; }
+  .toast.show { transform:none; }
+  .lcdbar { display:flex; justify-content:space-between; font:11px ui-monospace,monospace; color:#9aa4bb; margin:7px 3px 9px; }
+  .entry { width:100%; padding:9px 10px; border-radius:8px; border:1px solid #3b4460; font:14px ui-monospace,monospace; margin-bottom:9px; background:#10151f; color:var(--ink); }
+  .keys { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .keys button { padding:9px 0; font-size:17px; border:0; border-radius:9px; background:#414a68; color:var(--ink); cursor:pointer; box-shadow:0 2px 0 #1b2030; }
+  .keys button:active { transform:translateY(1px); box-shadow:none; }
+  .keys .call { background:#1f9d55; font-size:14px; font-weight:600; } .keys .end { background:#c0392b; font-size:14px; font-weight:600; } .keys .del { background:#5a6585; font-size:14px; }
+
+  .wallet { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 14px; }
+  .bal { font-size:28px; font-weight:700; color:var(--btc); transition:color .3s, transform .3s; display:inline-block; }
+  .bal.up { color:var(--ok); transform:scale(1.06); } .bal.down { color:var(--bad); }
+  .unit { color:var(--mute); font-size:14px; margin-left:4px; }
+  .addr { font:12px ui-monospace,monospace; color:var(--info); word-break:break-all; margin-top:2px; }
+  .muted { color:var(--mute); font-size:13px; }
+  .tx { display:flex; justify-content:space-between; gap:8px; padding:5px 0; border-top:1px solid var(--line); font-size:13px; }
+  .pos { color:var(--ok); } .neg { color:var(--bad); }
+  .sms { margin-top:8px; padding:7px 9px; border-radius:10px; background:var(--panel2); font-size:12.5px; word-break:break-all; }
+  .sms .muted { display:block; font-size:11px; }
+  .sms button { margin-top:6px; }
+
+  /* network */
+  .net { display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:center; }
+  .node { background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:0; }
+  .node b { display:block; font-size:14px; }
+  .node small { color:var(--mute); font:11px ui-monospace,monospace; overflow-wrap:anywhere; }
+  .wire { width:70px; height:4px; background:var(--line); border-radius:2px; position:relative; overflow:hidden; }
+  .wire.flow::after { content:""; position:absolute; top:0; width:30px; height:4px; background:var(--btc); box-shadow:0 0 10px var(--btc); animation:flow .7s linear 2; }
+  .wire.flow.rev::after { animation-name:flowrev; }
+  @keyframes flow { from { left:-30px; } to { left:70px; } }
+  @keyframes flowrev { from { left:70px; } to { left:-30px; } }
+  .chanbar { height:12px; border-radius:6px; overflow:hidden; display:flex; background:var(--line); margin:12px 0 4px; }
+  .chanbar i { display:block; height:100%; transition:width .6s; }
+  .chanbar .l { background:var(--info); } .chanbar .r { background:var(--btc); }
+  .chanlegend { display:flex; justify-content:space-between; font:11.5px ui-monospace,monospace; color:var(--mute); gap:8px; flex-wrap:wrap; }
+  .below { margin-top:10px; font-size:12.5px; color:var(--mute); }
+
+  /* outside wallet */
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .row > * { min-width:0; }
+  select, input.amt { background:#10151f; color:var(--ink); border:1px solid #3b4460; border-radius:8px; padding:8px 10px; font:14px system-ui,sans-serif; }
+  input.amt { width:110px; }
+  .btn { background:var(--btc); color:#111; border:0; border-radius:9px; padding:9px 14px; font-weight:700; cursor:pointer; font-size:14px; }
+  .btn.ghost { background:var(--panel2); color:var(--ink); border:1px solid var(--line); font-weight:600; }
+  .btn:disabled { opacity:.5; cursor:wait; }
+  .steps { list-style:none; padding:0; margin:12px 0 0; font-size:13px; }
+  .steps li { padding:4px 0 4px 24px; position:relative; color:var(--mute); }
+  .steps li::before { content:"○"; position:absolute; left:4px; color:var(--mute); }
+  .steps li.done { color:var(--ink); } .steps li.done::before { content:"✓"; color:var(--ok); }
+  .steps li.fail { color:var(--bad); } .steps li.fail::before { content:"✕"; color:var(--bad); }
+  .inv { margin-top:10px; font:11px ui-monospace,monospace; color:var(--mute); word-break:break-all; background:#10151f; border-radius:8px; padding:8px; display:none; }
+  .qr { display:none; margin-top:10px; text-align:center; }
+  .qr img { width:200px; height:200px; background:#fff; padding:8px; border-radius:10px; }
+  hr.sep { border:0; border-top:1px solid var(--line); margin:16px 0; }
+
+  /* feed */
+  .feed { max-height:300px; overflow:auto; font-size:13px; }
+  .ev { display:grid; grid-template-columns:62px 1fr; gap:8px; padding:6px 0; border-top:1px solid var(--line); }
+  .ev:first-child { border-top:0; }
+  .ev time { color:var(--mute); font:11.5px ui-monospace,monospace; padding-top:1px; }
+  .ev.money { color:var(--ok); } .ev.sms { color:var(--info); } .ev.err { color:var(--bad); }
+  .tour { font-size:13px; color:var(--mute); margin:0; padding-left:18px; }
+  .tour li { margin:3px 0; } .tour b { color:var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>⚡ Lightning over <b>USSD</b></h1>
+    <p>Two feature phones with no internet, each with its own Lightning wallet. Every balance and payment below is real Lightning, settled between real nodes.</p>
+  </div>
+  <div class="badges" id="badges"><span class="badge">connecting…</span></div>
+</header>
+
+<div class="layout">
+  <section class="left">
+    <div class="card">
+      <h2>Add a phone</h2>
+      <form class="addform" id="addForm" autocomplete="off">
+        <input id="addName" maxlength="24" placeholder="Name (optional)" aria-label="Name">
+        <input id="addNumber" inputmode="tel" maxlength="20" placeholder="+234 803 123 4567 or 77 123 45 67" aria-label="Phone number" required>
+        <button class="btn" type="submit">Add &amp; dial</button>
+      </form>
+      <div class="formmsg" id="addMsg"></div>
+      <div class="presets">Presets: <button class="btn ghost" type="button" data-preset="0">Awa</button><button class="btn ghost" type="button" data-preset="1">Moussa</button>
+        <span>· Local numbers without + get +221 (Senegal).</span></div>
+    </div>
+    <div class="phones" id="phones"></div>
+  </section>
+
+  <section class="stack">
+    <div class="card">
+      <h2>Lightning network <span id="height" class="muted"></span></h2>
+      <div class="net">
+        <div class="node"><b>🌍 Outside world</b><small id="worldAlias">any Lightning wallet</small></div>
+        <div class="wire" id="wire"></div>
+        <div class="node"><b>📡 USSD operator</b><small>LNbits on LND · holds the phone wallets</small></div>
+      </div>
+      <div class="chanbar"><i class="l" id="chanL" style="width:50%"></i><i class="r" id="chanR" style="width:50%"></i></div>
+      <div class="chanlegend"><span id="chanLtxt">outside side</span><span id="chanCap"></span><span id="chanRtxt">operator side</span></div>
+      <div class="below" id="netNote"></div>
+    </div>
+
+    <div class="card">
+      <h2>Outside-world wallet</h2>
+      <div class="muted" style="margin-bottom:10px">Plays a smartphone wallet anywhere on the internet. It pays a phone's Lightning address through the standard LNURL-pay flow.</div>
+      <div class="row">
+        <select id="payTo"></select>
+        <input class="amt" id="payAmt" type="number" min="1" value="2500" aria-label="Amount in sats">
+        <button class="btn" id="payBtn">Pay address</button>
+      </div>
+      <ul class="steps" id="paySteps">
+        <li>Resolve Lightning address (/.well-known/lnurlp)</li>
+        <li>Request invoice from callback</li>
+        <li>Verify amount and description hash</li>
+        <li>Pay over Lightning</li>
+        <li>Phone owner gets an SMS</li>
+      </ul>
+      <hr class="sep">
+      <div class="muted" style="margin-bottom:10px">Cash out: the outside wallet creates an invoice and a phone user pays it with their PIN (Send → Lightning invoice).</div>
+      <div class="row">
+        <input class="amt" id="outAmt" type="number" min="1" value="1000" aria-label="Cash-out amount in sats">
+        <button class="btn ghost" id="outBtn">Create invoice</button>
+        <select id="outTo"></select>
+        <button class="btn ghost" id="outFill" disabled>Put on keypad</button>
+      </div>
+      <div class="inv" id="outInv"></div>
+    </div>
+
+    <div class="card">
+      <h2>Live activity</h2>
+      <div class="feed" id="feed"><div class="muted">Waiting for something to happen…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Try it</h2>
+      <ol class="tour">
+        <li><b>Add your number</b> (and a second one). The phone dials at once; a new number creates its own wallet: language, PIN, PIN again.</li>
+        <li>Outside-world wallet: <b>pay your phone 2,500 sats</b>. Watch the channel, the balance and the SMS.</li>
+        <li>On your phone: <b>3</b> Send → <b>1</b> Phone number → the other number → <b>500</b> → PIN.</li>
+        <li>Cash out: create an invoice, <b>Put on keypad</b>, then on that phone 3 → 2 → Call → PIN.</li>
+      </ol>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const PRESETS = [
+  { name:'Awa', role:'fabric seller, Sandaga market', phone:'+221771234567' },
+  { name:'Moussa', role:'her cousin in Thiès', phone:'+221772345678' },
+];
+const STORE = 'ussd-demo-phones';
+const CODE = '*384*96#';
+const COUNTRY = '221';  // matches DEFAULT_COUNTRY_CODE on the gateway
+const USERS = [];
+const fmt = n => Number(n).toLocaleString('en-US');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ---------- activity feed ----------
+function log(text, kind) {
+  const feed = $('feed');
+  if (feed.firstElementChild && feed.firstElementChild.classList.contains('muted')) feed.innerHTML = '';
+  const ev = document.createElement('div');
+  ev.className = 'ev' + (kind ? ' ' + kind : '');
+  const t = document.createElement('time'); t.textContent = new Date().toLocaleTimeString('en-GB');
+  const p = document.createElement('div'); p.textContent = text;
+  ev.append(t, p); feed.prepend(ev);
+}
+
+// ---------- phone list ----------
+// Same rules as src/phone.py: "+…" or "00…" is international, otherwise the
+// default country code is added (dropping a leading trunk 0).
+function normalizeNumber(raw) {
+  let t = String(raw).replace(/[\s().-]/g, '');
+  if (t.startsWith('00')) t = '+' + t.slice(2);
+  if (!t.startsWith('+')) {
+    t = (t.startsWith(COUNTRY) && t.length >= COUNTRY.length + 8) ? '+' + t : '+' + COUNTRY + t.replace(/^0+/, '');
+  }
+  return /^\+\d{10,15}$/.test(t) ? t : null;
+}
+
+function savePhones() {
+  try { localStorage.setItem(STORE, JSON.stringify(USERS.map(({ name, role, phone }) => ({ name, role, phone })))); } catch (e) {}
+}
+
+function loadPhones() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE));
+    if (Array.isArray(saved)) return saved.filter(p => p && normalizeNumber(p.phone));
+  } catch (e) {}
+  return PRESETS;  // first visit
+}
+
+function addMsg(text, kind) { const m = $('addMsg'); m.textContent = text; m.className = 'formmsg' + (kind ? ' ' + kind : ''); }
+
+function addPhone({ name, role, phone }, dial) {
+  const existing = USERS.find(u => u.phone === phone);
+  if (existing) {
+    const card = $(existing.key + '-card');
+    card.scrollIntoView({ behavior:'smooth', block:'center' });
+    card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 1500);
+    addMsg(`${phone} is already on screen.`, 'err');
+    return;
+  }
+  const u = { key:'p' + phone.slice(1), name: name || phone, role: role || '', phone };
+  USERS.push(u); savePhones();
+  buildPhone(u); renderEmpty(); fillTargets(); refreshUser(u);
+  if (dial) { press(u); log(`${u.name} dialed ${CODE}`); }
+}
+
+function removePhone(u) {
+  hangup(u, true);
+  $(u.key + '-card').remove();
+  USERS.splice(USERS.indexOf(u), 1); savePhones();
+  renderEmpty(); fillTargets();
+  addMsg(`Removed ${u.name}. Its wallet stays on the gateway; add the number again to use it.`, 'ok');
+}
+
+function renderEmpty() {
+  const box = $('phones'), empty = box.querySelector('.empty');
+  if (USERS.length && empty) empty.remove();
+  if (!USERS.length && !empty) box.insertAdjacentHTML('afterbegin', '<div class="empty">Add a phone number above to put a feature phone on screen.</div>');
+}
+
+$('addForm').onsubmit = e => {
+  e.preventDefault();
+  const phone = normalizeNumber($('addNumber').value);
+  if (!phone) { addMsg('That does not look like a phone number. Try +2348031234567 or 771234567.', 'err'); return; }
+  const before = USERS.length;
+  addPhone({ name: $('addName').value.trim(), phone }, true);
+  if (USERS.length > before) { addMsg(`Added ${phone} and dialed ${CODE}.`, 'ok'); $('addName').value = ''; $('addNumber').value = ''; }
+};
+document.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
+  addMsg(''); addPhone(PRESETS[Number(b.dataset.preset)], true);
+});
+
+// ---------- phones ----------
+function buildPhone(u) {
+  const el = document.createElement('div');
+  el.className = 'user';
+  el.id = u.key + '-card';
+  el.innerHTML = `
+    <div class="who"><strong>${esc(u.name)}</strong><span>${esc(u.phone)} <button class="remove" type="button" title="Remove this phone">✕</button></span></div>
+    <div class="muted" style="margin-top:-8px">${esc(u.role)}</div>
+    <div class="phone">
+      <div class="speaker"></div>
+      <div class="lcd idle" id="${u.key}-lcd">Press Call to dial ${CODE}<div class="toast" id="${u.key}-toast"></div></div>
+      <div class="lcdbar"><span id="${u.key}-status">idle</span><span id="${u.key}-chars">0/160</span></div>
+      <input class="entry" id="${u.key}-entry" autocomplete="off" placeholder="type or paste, then Call" aria-label="${esc(u.name)} keypad input">
+      <div class="keys" id="${u.key}-keys"></div>
+    </div>
+    <div class="wallet">
+      <div><span class="bal" id="${u.key}-bal">–</span><span class="unit">sats</span></div>
+      <div class="addr" id="${u.key}-addr"></div>
+      <div id="${u.key}-txs"></div>
+    </div>
+    <div class="wallet">
+      <div class="muted" style="font-weight:600">SMS inbox</div>
+      <div id="${u.key}-sms"><div class="muted">No messages</div></div>
+    </div>`;
+  $('phones').appendChild(el);
+
+  el.querySelector('.remove').onclick = () => removePhone(u);
+  u.sid = null; u.inputs = []; u.lastBal = null; u.smsSeen = null;
+  const keys = $(u.key + '-keys'), entry = $(u.key + '-entry');
+  ['1','2','3','4','5','6','7','8','9','*','0','#'].forEach(k => {
+    const b = document.createElement('button'); b.textContent = k;
+    b.onclick = () => { entry.value += k; entry.focus(); }; keys.appendChild(b);
+  });
+  [['⌫','del',() => { entry.value = entry.value.slice(0, -1); }], ['Call','call',() => press(u)], ['End','end',() => hangup(u, true)]]
+    .forEach(([t, c, f]) => { const b = document.createElement('button'); b.textContent = t; b.className = c; b.onclick = f; keys.appendChild(b); });
+  entry.addEventListener('keydown', e => { if (e.key === 'Enter') press(u); });
+}
+
+function screen(u, raw) {
+  const i = raw.indexOf(' ');
+  const kind = i < 0 ? raw : raw.slice(0, i);
+  const text = i < 0 ? '' : raw.slice(i + 1);
+  const lcd = $(u.key + '-lcd');
+  lcd.classList.remove('idle');
+  lcd.firstChild.nodeType === 3 ? (lcd.firstChild.textContent = text) : lcd.prepend(document.createTextNode(text));
+  $(u.key + '-status').textContent = kind === 'CON' ? 'session open' : 'session ended';
+  $(u.key + '-chars').textContent = text.length + '/160';
+  if (kind === 'END') { u.sid = null; u.inputs = []; }
+  if (/^(Sent|Envoyé)/.test(text)) log(`${u.name}: ${text.split('\n')[0]}`, 'money');
+  if (/Wallet created|Portefeuille créé/.test(text)) { log(`${u.name} created a wallet over USSD`); refresh(); }
+  if (/Too many wrong|Trop d'erreurs/.test(text)) log(`${u.name}'s phone locked after 3 wrong PINs`, 'err');
+}
+
+async function post(u, text) {
+  const body = new URLSearchParams({ sessionId: u.sid, phoneNumber: u.phone, serviceCode: CODE, text });
+  const r = await fetch('/demo/ussd', { method:'POST', body });
+  return r.text();
+}
+
+async function press(u) {
+  const entry = $(u.key + '-entry');
+  const value = entry.value.trim();
+  try {
+    if (!u.sid) {
+      u.sid = u.key + Date.now(); u.inputs = []; entry.value = '';
+      screen(u, await post(u, ''));
+      return;
+    }
+    const v = value.replace(/[*#]/g, '');
+    if (!v) return;
+    u.inputs.push(v); entry.value = '';
+    screen(u, await post(u, u.inputs.join('*')));
+  } catch (e) { log(`${u.name}: network error`, 'err'); }
+}
+
+function hangup(u, clear) {
+  u.sid = null; u.inputs = [];
+  const lcd = $(u.key + '-lcd');
+  lcd.classList.add('idle'); lcd.firstChild.textContent = 'Press Call to dial ' + CODE;
+  $(u.key + '-status').textContent = 'idle'; $(u.key + '-chars').textContent = '0/160';
+  if (clear) $(u.key + '-entry').value = '';
+}
+
+function toast(u, text) {
+  const t = $(u.key + '-toast');
+  t.textContent = '✉ ' + text; t.classList.add('show');
+  clearTimeout(u.toastTimer); u.toastTimer = setTimeout(() => t.classList.remove('show'), 6000);
+}
+
+// ---------- data refresh ----------
+async function refreshUser(u) {
+  try {
+    const w = await (await fetch('/demo/api/wallet?phone=' + encodeURIComponent(u.phone))).json();
+    const bal = $(u.key + '-bal');
+    if (!w.registered) {
+      bal.textContent = '–'; $(u.key + '-addr').textContent = 'No wallet yet. Dial to create one.';
+      $(u.key + '-txs').innerHTML = ''; u.lastBal = null; u.registered = false;
+    } else {
+      u.registered = true;
+      bal.textContent = fmt(w.balance_sats);
+      $(u.key + '-addr').textContent = w.lightning_address ? '⚡ ' + w.lightning_address : '';
+      if (u.lastBal !== null && w.balance_sats !== u.lastBal) {
+        const up = w.balance_sats > u.lastBal;
+        bal.classList.add(up ? 'up' : 'down'); setTimeout(() => bal.classList.remove('up', 'down'), 1500);
+        log(`${u.name}'s balance ${up ? '+' : '−'}${fmt(Math.abs(w.balance_sats - u.lastBal))} sats → ${fmt(w.balance_sats)}`, 'money');
+      }
+      u.lastBal = w.balance_sats;
+      const txs = $(u.key + '-txs'); txs.innerHTML = '';
+      w.transactions.slice(0, 4).forEach(t => {
+        const d = document.createElement('div'); d.className = 'tx';
+        const a = document.createElement('span'); a.textContent = (t.amount > 0 ? 'Received' : 'Sent') + ' · ' + new Date(t.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        const b = document.createElement('span'); b.className = t.amount > 0 ? 'pos' : 'neg'; b.textContent = (t.amount > 0 ? '+' : '') + fmt(t.amount);
+        d.append(a, b); txs.appendChild(d);
+      });
+    }
+  } catch (e) {}
+
+  try {
+    const { messages } = await (await fetch('/demo/api/sms?phone=' + encodeURIComponent(u.phone))).json();
+    const latest = messages.length ? messages[0].time + messages[0].message : '';
+    if (u.smsSeen !== null && latest && latest !== u.smsSeen) {
+      toast(u, messages[0].message.split('\n')[0]);
+      log(`SMS to ${u.name}: ${messages[0].message.split('\n')[0]}`, 'sms');
+    }
+    u.smsSeen = latest;
+    const box = $(u.key + '-sms'); box.innerHTML = messages.length ? '' : '<div class="muted">No messages</div>';
+    messages.slice(0, 4).forEach(m => {
+      const d = document.createElement('div'); d.className = 'sms';
+      const when = document.createElement('span'); when.className = 'muted'; when.textContent = new Date(m.time * 1000).toLocaleTimeString();
+      const bolt = (m.message.match(/ln(bc|tb)[0-9a-z]+/i) || [])[0];
+      const shown = bolt ? m.message.replace(bolt, bolt.slice(0, 28) + '…') : m.message;
+      d.append(when, document.createTextNode(shown));
+      if (bolt) {
+        const q = document.createElement('button'); q.className = 'btn ghost'; q.textContent = 'Show QR';
+        q.onclick = () => { const img = document.createElement('img'); img.alt = 'Invoice QR'; img.style.cssText = 'width:180px;height:180px;background:#fff;padding:6px;border-radius:8px;display:block;margin-top:6px'; img.src = '/demo/api/qr?data=' + encodeURIComponent('lightning:' + bolt.toUpperCase()); q.replaceWith(img); };
+        d.appendChild(q);
+      }
+      box.appendChild(d);
+    });
+  } catch (e) {}
+}
+
+let lastChan = null;
+async function refreshWorld() {
+  try {
+    const w = await (await fetch('/demo/api/world')).json();
+    const badges = $('badges');
+    if (!w.available) {
+      badges.innerHTML = '<span class="badge warn">FakeWallet mode · run the regtest stack for real Lightning</span>';
+      $('netNote').textContent = 'No outside-world node. Start: docker compose -f docker-compose.yml -f docker-compose.regtest.yml up -d && scripts/regtest_bootstrap.sh';
+      $('payBtn').disabled = true; $('outBtn').disabled = true;
+      return;
+    }
+    badges.innerHTML = `<span class="badge live">real Lightning</span><span class="badge">${esc(w.network)}</span><span class="badge">block ${fmt(w.block_height)}</span>`;
+    $('worldAlias').textContent = `${w.alias} · ${w.pubkey.slice(0, 16)}…`;
+    $('height').textContent = '';
+    const c = w.channels[0];
+    if (c) {
+      const total = c.local_balance + c.remote_balance;
+      $('chanL').style.width = (100 * c.local_balance / total) + '%';
+      $('chanR').style.width = (100 * c.remote_balance / total) + '%';
+      $('chanLtxt').textContent = 'outside: ' + fmt(c.local_balance);
+      $('chanRtxt').textContent = 'operator: ' + fmt(c.remote_balance);
+      $('chanCap').textContent = 'channel ' + fmt(c.capacity) + ' sats';
+      if (lastChan !== null && c.local_balance !== lastChan) {
+        const wire = $('wire'); wire.className = 'wire';
+        void wire.offsetWidth;
+        wire.className = 'wire flow' + (c.local_balance > lastChan ? ' rev' : '');
+      }
+      lastChan = c.local_balance;
+      $('netNote').textContent = 'Payments between the phones settle inside the operator. Payments to or from the outside world cross this channel.';
+    }
+  } catch (e) {}
+}
+
+function refresh() { USERS.forEach(refreshUser); refreshWorld(); }
+
+// ---------- outside-world wallet ----------
+function fillTargets() {
+  ['payTo', 'outTo'].forEach(id => {
+    const keep = $(id).value;
+    $(id).innerHTML = USERS.map(u => `<option value="${u.key}">${esc(u.name)} (${esc(u.phone)})</option>`).join('');
+    if (USERS.some(u => u.key === keep)) $(id).value = keep;
+  });
+  $('payBtn').disabled = !USERS.length;
+}
+
+// Marks the first `done` steps as done, and optionally one step as failed.
+function setSteps(done, failAt, failText) {
+  [...$('paySteps').children].forEach((li, i) => {
+    li.dataset.orig = li.dataset.orig || li.textContent;
+    li.textContent = li.dataset.orig;
+    li.className = i < done ? 'done' : '';
+    if (i === failAt) { li.className = 'fail'; if (failText) li.textContent = failText; }
+  });
+}
+
+$('payBtn').onclick = async () => {
+  const u = USERS.find(x => x.key === $('payTo').value);
+  const amount = parseInt($('payAmt').value, 10);
+  if (!u || !(amount > 0)) return;
+  $('payBtn').disabled = true; setSteps(0);
+  log(`Outside wallet → ${u.name}'s Lightning address, ${fmt(amount)} sats`);
+  try {
+    const r = await fetch('/demo/api/world/pay', { method:'POST', body:new URLSearchParams({ phone:u.phone, amount }) });
+    const j = await r.json();
+    if (!r.ok) { setSteps(0, 0, j.detail || 'Failed'); log(`Payment failed: ${j.detail}`, 'err'); return; }
+    setSteps(4);
+    const li = $('paySteps').children[3]; li.dataset.orig = li.dataset.orig || li.textContent;
+    li.textContent = `Paid over Lightning in ${fmt(j.elapsed_ms)} ms, fee ${j.fee_sats} sats`;
+    log(`Paid ${j.address}: ${fmt(amount)} sats in ${fmt(j.elapsed_ms)} ms`, 'money');
+    const before = u.smsSeen;
+    for (let i = 0; i < 10; i++) { await new Promise(r => setTimeout(r, 700)); await refreshUser(u); if (u.smsSeen !== before) { setSteps(5); break; } }
+    refreshWorld();
+  } catch (e) { setSteps(0, 0, 'Network error'); }
+  finally { $('payBtn').disabled = false; }
+};
+
+let cashout = null;
+$('outBtn').onclick = async () => {
+  const amount = parseInt($('outAmt').value, 10);
+  if (!(amount > 0)) return;
+  try {
+    const r = await fetch('/demo/api/world/invoice', { method:'POST', body:new URLSearchParams({ amount }) });
+    const j = await r.json();
+    if (!r.ok) { log(`Invoice failed: ${j.detail}`, 'err'); return; }
+    cashout = j.bolt11;
+    $('outInv').style.display = 'block'; $('outInv').textContent = cashout;
+    $('outFill').disabled = false;
+    log(`Outside wallet created a ${fmt(amount)} sat invoice for a cash-out`);
+  } catch (e) {}
+};
+$('outFill').onclick = () => {
+  const u = USERS.find(x => x.key === $('outTo').value);
+  if (!u) return;
+  $(u.key + '-entry').value = cashout; $(u.key + '-entry').focus();
+};
+
+loadPhones().forEach(p => addPhone({ ...p, phone: normalizeNumber(p.phone) }, false));
+renderEmpty();
+fillTargets();
+refresh(); setInterval(refresh, 2500);
+</script>
+</body>
+</html>
