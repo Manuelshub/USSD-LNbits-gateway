@@ -102,12 +102,25 @@ All settings are listed in [.env.example](.env.example).
 
 ## Security
 
-- PIN required for every payment, hashed with PBKDF2-SHA256 and a per-user salt; weak PINs refused; lockout after 3 wrong tries.
-- `/ussd` protected by a shared secret, since Africa's Talking does not sign callbacks; the gateway refuses to start without it unless `DEMO_MODE=true`.
-- One LNbits account per phone; the operator wallet is never exposed to USSD users.
-- Read-only invoice key for everything except paying.
-- Phone numbers are masked in every log line (including HTTP access logs); raw USSD input is never logged because it contains PINs; API keys are masked.
-- The paid-invoice webhook uses a secret path and re-checks the payment with LNbits before sending an SMS.
+### Threats and mitigations
+
+| Threat | Mitigation |
+|---|---|
+| Someone else picks up the phone and sends money | 4-digit PIN on every payment, PBKDF2-SHA256 with a per-user salt, constant-time check. Weak PINs (1111, 1234...) refused. 3 wrong PINs lock sending for 30 minutes. |
+| A forged USSD request claims a victim's number | Africa's Talking doesn't sign callbacks, so `/ussd` requires a shared secret (`/ussd?key=...`, constant-time check). The gateway refuses to start without it unless `DEMO_MODE=true`. The PIN is still needed to move funds. |
+| One user reaches another's wallet | One LNbits **account** per phone, not just a wallet. No shared fallback wallet. |
+| USSD users spend the operator's funds | The operator wallet is never bound to a phone. |
+| Fake "you received" SMS through the webhook | Secret webhook path, and the payment is re-checked with LNbits before any SMS goes out. |
+| Phone numbers or PINs leak through logs | Numbers masked (`+221*******67`) in app, audit and HTTP access logs. Raw USSD input is never logged, because it contains PINs. API keys masked. |
+| A leaked key does too much | Balance, invoices and history use the read-only invoice key. Only paying uses the admin key. |
+
+### Known gaps
+
+- **Redis holds each phone's LNbits admin key and PIN hash.** A 4-digit PIN hash can be brute-forced offline, so Redis must stay private (it isn't published by the compose file). Next: Redis AUTH/TLS and encrypted records.
+- **SIM swap** gives an attacker the phone number, though they still need the PIN. Next: daily send limits and a recovery flow.
+- **A Lightning address reveals the phone number.** Next: optional aliases.
+- **Custodial by design:** the operator's LNbits holds users' funds, as with any USSD wallet. Run it as a community or cooperative you trust.
+- `DEMO_MODE=true` opens the `/demo` pages and faucet. Demo only.
 
 ## Tests
 
