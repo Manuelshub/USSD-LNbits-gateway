@@ -126,7 +126,7 @@ Registrations per day and 7-day activation; transfers per week and median amount
 1. Pay a Lightning address or short merchant code from USSD.
 2. Wolof menus, with a native speaker.
 3. Daily send limits and PIN recovery.
-4. Port the LNbits extension in [lnbits_extension/](lnbits_extension/) to the LNbits 1.x API so operators manage phones from LNbits.
+4. Operator admin screen: unlock PINs, disable phones, see activity.
 5. Signet pilot with Africa's Talking in Senegal.
 
 ## License
