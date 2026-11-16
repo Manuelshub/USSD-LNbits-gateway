@@ -45,27 +45,40 @@ Any Lightning wallet ──pays 221771234567@domain (LNURL-pay)──▶ Gateway
 
 Each keypress is one HTTP request. The gateway is stateless; sessions and phone wallets live in Redis. Details, sequence diagrams and the threat model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-**Stack:** Python 3.12, FastAPI, Redis, LNbits 1.6, Africa's Talking (USSD + SMS), Docker Compose.
+**Stack:** Python 3.12, FastAPI, Redis, LNbits 1.6 on LND 0.18, Bitcoin Core 27 (regtest), Africa's Talking (USSD + SMS), Docker Compose.
 
-## Run it locally
+## Run it locally (real Lightning, no real money)
 
-Requirements: Docker with Compose.
+Requirements: Docker with Compose, `jq`, `openssl`.
 
 ```bash
 git clone <this repository>
 cd dakar-bitcoin
-cp .env.example .env
-docker compose up -d
+scripts/regtest_bootstrap.sh
 ```
 
-1. Open LNbits at http://localhost:5000, create a wallet (this is the **operator** wallet; it funds the demo faucet and is never given to a phone), and put its Wallet ID, Admin key and Invoice key in `.env`.
-2. In `.env` set `DEMO_MODE=true` and `PUBLIC_URL=http://localhost:8000`, plus `WEBHOOK_SECRET` (`openssl rand -hex 24`).
-3. `docker compose up -d` again, then run `scripts/setup_demo.sh` once. It credits the operator wallet with FakeWallet sats and lets LNbits call the gateway's webhook.
-4. Open **http://localhost:8000/demo**: a phone simulator with the wallet behind it, its Lightning address, and the SMS it receives.
+That one command (about 40 seconds on a fresh clone) starts a private **regtest** Lightning network and everything on top of it:
 
-Demo script: dial as Awa, choose a language, set a PIN twice. Do the same as Moussa. Give Awa 5,000 sats with the faucet. As Awa: `3` Send → `1` Phone number → `772345678` → `500` → PIN. Moussa's balance goes up and his SMS inbox shows the alert.
+- `bitcoind` (regtest) and two LND nodes: **ussd-operator**, the operator's node that LNbits runs on, and **outside-world**, standing in for every other Lightning wallet on the internet
+- a 15,000,000 sat channel between them, with balance on both sides
+- LNbits on the operator's LND (not FakeWallet), the gateway, Redis
+- `.env` with an operator wallet and demo settings, then a real Lightning payment into it as a smoke test
 
-From a terminal: `python scripts/ussd_sim.py --phone +221771234567`.
+Open **http://localhost:8000/demo**: feature phones side by side, the Lightning channel with its live balances, an outside-world wallet that pays Lightning addresses, and a feed of everything that happens.
+
+Demo script:
+1. **Add a phone** with your own number (any country; local Senegalese numbers need no +221), then a second one. Each phone dials as soon as it is added, and a new number creates its own wallet: language, PIN, PIN again. Awa and Moussa are one-click presets.
+2. Outside-world wallet: **pay your phone 2,500 sats**. It resolves the Lightning address, fetches an invoice, checks the description hash and pays over the channel. The balance updates and an SMS pops up on the phone's screen.
+3. On that phone: `3` Send → `1` Phone number → the other number → `500` → PIN. The other phone gets the sats and an SMS.
+4. Cash out: create an invoice in the outside-world wallet, **Put on keypad** for a phone, then on it `3` → `2` → Call → PIN. The sats leave the operator over Lightning.
+
+The phone list is kept in your browser; removing a phone does not delete its wallet.
+
+After restarting Docker, run `scripts/regtest_bootstrap.sh` again (a few seconds; it reconnects the nodes). `scripts/reset_demo.sh` forgets all demo phones for a clean recording.
+
+From a terminal instead of the browser: `python scripts/ussd_sim.py --phone +221771234567`.
+
+**Lighter mode:** `docker compose up -d` alone runs LNbits on FakeWallet (no Lightning nodes). Balances are then ledger entries; `scripts/setup_demo.sh` credits the operator wallet for the demo faucet.
 
 ## Going live with Africa's Talking
 
@@ -73,14 +86,14 @@ From a terminal: `python scripts/ussd_sim.py --phone +221771234567`.
 2. Set `USSD_CALLBACK_SECRET` and register `https://your-domain/ussd?key=<secret>` as the USSD callback (POST).
 3. Set `AT_USERNAME` and `AT_API_KEY` for SMS, `USSD_CODE` to your shortcode.
 4. Allow your gateway's URL in LNbits' callback URL rules (Admin UI → Server) so paid alerts work.
-5. Keep `DEMO_MODE=false`. Use a funded Lightning backend instead of FakeWallet.
+5. Keep `DEMO_MODE=false`, and run LNbits on a mainnet funding source (your own LND or CLN, Phoenixd, Blink...) instead of the regtest nodes.
 
 All settings are listed in [.env.example](.env.example).
 
 ## Security
 
 - PIN required for every payment, hashed with PBKDF2-SHA256 and a per-user salt; weak PINs refused; lockout after 3 wrong tries.
-- `/ussd` protected by a shared secret, since Africa's Talking does not sign callbacks.
+- `/ussd` protected by a shared secret, since Africa's Talking does not sign callbacks; the gateway refuses to start without it unless `DEMO_MODE=true`.
 - One LNbits account per phone; the operator wallet is never exposed to USSD users.
 - Read-only invoice key for everything except paying.
 - Phone numbers are masked in every log line (including HTTP access logs); raw USSD input is never logged because it contains PINs; API keys are masked.
@@ -101,7 +114,7 @@ Unit, integration and property-based (Hypothesis) tests cover registration, PIN 
 
 - A USSD screen holds 160 characters; invoices are delivered by SMS and receiving uses Lightning addresses.
 - Paying an arbitrary merchant invoice from USSD still means typing it; phone-to-phone covers the everyday case.
-- The bundled LNbits uses FakeWallet: sats move between phones on the same LNbits, but nothing settles on the real network.
+- The demo network is regtest: real Lightning nodes, channels and payments, but a private chain, so nobody outside can pay with their own phone wallet. Pointing LNbits at a mainnet backend (Blink, Phoenixd, LND...) is a configuration change.
 - USSD sessions time out after about 90 seconds (operator dependent).
 
 ## Metrics we will track
