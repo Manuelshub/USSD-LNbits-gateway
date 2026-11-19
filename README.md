@@ -60,8 +60,8 @@ Each keypress is one HTTP request. The gateway is stateless; sessions and phone 
 Requirements: Docker with Compose, `jq`, `openssl`.
 
 ```bash
-git clone <this repository>
-cd dakar-bitcoin
+git clone https://github.com/Manuelshub/USSD-LNbits-gateway.git
+cd USSD-LNbits-gateway
 scripts/regtest_bootstrap.sh
 ```
 
@@ -127,6 +127,12 @@ All settings are listed in [.env.example](.env.example).
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/pytest
+```
+
+With the regtest stack running, one script checks every component together (Lightning nodes and channel, LNbits, Redis, every menu, Lightning addresses, invoices by SMS, the paid webhook, PINs and lockout, cash out, the callback secret, log masking, 160-character screens, concurrent sessions and a gateway restart):
+
+```bash
+.venv/bin/python scripts/system_test.py     # 60 checks, about 20 s
 ```
 
 Unit, integration and property-based (Hypothesis) tests cover registration, PIN lockout, phone-to-phone sends, invoices by SMS, Lightning addresses, the webhook, the callback secret, log masking, and that every screen in both languages fits in 160 characters.
