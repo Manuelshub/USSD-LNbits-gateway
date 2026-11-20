@@ -55,8 +55,6 @@ def _demo_mode() -> bool:
 async def startup_event():
     """Load configuration and wire up dependencies on startup.
     
-    Validates: Requirements 10.1, 10.5
-    
     Performs startup validation by:
     1. Loading configuration from environment
     2. Initializing Redis connection and validating connectivity
@@ -65,10 +63,10 @@ async def startup_event():
     """
     global config, redis_client, session_manager, accounts, notifier
     try:
-        # Load and validate configuration (Requirement 10.1)
+        # Load and validate configuration
         config = ConfigManager.load_from_env()
         
-        # Setup structured logging (Task 14.2, Requirements 8.5, 8.6)
+        # Setup structured logging
         setup_logging(config.log_level)
         
         logger.info(
@@ -82,7 +80,7 @@ async def startup_event():
         logger.info(ConfigManager.format_config(config, mask_secrets_flag=True))
 
     except ConfigurationError as e:
-        # Configuration validation failed (Requirement 9.5, 10.1)
+        # Configuration validation failed
         logger.error(
             f"Configuration error: {e}",
             extra={'event_type': 'startup_error', 'error_type': 'configuration'}
@@ -91,7 +89,7 @@ async def startup_event():
     
     try:
         # Redis-backed session store shared across all requests. The gateway is
-        # stateless; all session state lives in Redis (Requirement 7.5).
+        # stateless; all session state lives in Redis.
         redis_client = redis.from_url(config.redis_url, decode_responses=True)
         session_manager = SessionManager(
             redis_client, timeout_seconds=config.session_timeout
@@ -125,7 +123,7 @@ async def startup_event():
                 extra={'event_type': 'security_warning'}
             )
 
-        # Validate Redis connectivity (Requirement 10.5).
+        # Validate Redis connectivity.
         # Fail fast if Redis is unreachable.
         try:
             redis_client.ping()
@@ -137,7 +135,7 @@ async def startup_event():
             log_api_error(logger, 'redis', 'ping', error_message=str(e))
             raise RuntimeError(f"Cannot connect to Redis: {e}")
         
-        # Validate LNbits API connectivity (Requirement 10.5).
+        # Validate LNbits API connectivity.
         # Fail fast if LNbits is unreachable or credentials are invalid.
         try:
             lnbits_client = LNbitsClient(
@@ -198,8 +196,6 @@ def _latest_input(text: str) -> str:
 async def health_check():
     """Health check endpoint.
     
-    Validates: Requirements 10.6
-    
     Returns:
         200 OK with status object if both Redis and LNbits are operational,
         503 Service Unavailable if either service is unreachable.
@@ -211,7 +207,7 @@ async def health_check():
         "lnbits": "unknown"
     }
     
-    # Check Redis connection (Requirement 9.3)
+    # Check Redis connection
     try:
         redis_client.ping()
         health_status["redis"] = "connected"
@@ -228,7 +224,7 @@ async def health_check():
         health_status["status"] = "unhealthy"
         log_api_error(logger, 'redis', 'health_check', error_message=str(e))
     
-    # Check LNbits API connection (Requirement 9.1, 9.2)
+    # Check LNbits API connection
     try:
         # Use a lightweight endpoint to verify connectivity.
         # We create a test client with the global wallet credentials.
@@ -290,8 +286,6 @@ async def ussd_callback(
 
     Returns:
         Plain text response: "CON ..." to continue or "END ..." to terminate
-
-    Validates: Requirements 1.1, 1.2, 1.3, 1.5, 7.2, 8.1, 8.4
     """
     # Africa's Talking does not sign callbacks, so without this secret anyone
     # could POST here with someone else's phone number.
@@ -330,15 +324,14 @@ def handle_ussd(session_id: str, service_code: str, phone_number: str, text: str
     user_input = _latest_input(text)
 
     try:
-        # Retrieve the existing session for this session id (Requirement 7.2),
-        # or create a new one for a freshly initiated session (Requirements
-        # 1.1-1.3). A new session is recognised by an empty accumulated text.
+        # Retrieve the existing session for this session id,
+        # or create a new one for a freshly initiated session. A new session is recognised by an empty accumulated text.
         session = session_manager.get_session(session_id)
 
         if session is None:
             if text != "":
                 # Accumulated input but no session: it expired mid-flow
-                # (Requirement 7.4). Terminate so the user can redial.
+                #. Terminate so the user can redial.
                 logger.info(
                     "Session expired; terminating",
                     extra={
@@ -350,7 +343,7 @@ def handle_ussd(session_id: str, service_code: str, phone_number: str, text: str
                 return "END Session expired. Please dial again."
             session = session_manager.create_session(session_id, phone_number)
 
-        # Requirements 8.1, 8.4: the phone number selects the wallet.
+        # The phone number selects the wallet.
         wallet_config = session_manager.get_wallet_for_phone(phone_number)
         lnbits_client = None
         if wallet_config is None:
@@ -386,18 +379,18 @@ def handle_ussd(session_id: str, service_code: str, phone_number: str, text: str
         updated_session = menu_response.updated_session
 
         if menu_response.continue_session:
-            # Persist the updated session and refresh its TTL (Requirement 7.3).
+            # Persist the updated session and refresh its TTL.
             session_manager.update_session(updated_session)
             prefix = "CON"
         else:
-            # Terminal screen: clear all session data (Requirement 8.7).
+            # Terminal screen: clear all session data.
             session_manager.end_session(updated_session.session_id)
             prefix = "END"
 
         return f"{prefix} {menu_response.display_text}"
 
     except SessionStoreError as e:
-        # Redis connection or operation failed (Requirement 9.1, 9.3)
+        # Redis connection or operation failed
         log_api_error(logger, 'redis', 'session_operation', error_message=str(e))
         return "END Service temporarily unavailable. Please try again."
     except Exception as e:

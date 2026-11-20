@@ -44,7 +44,7 @@ Lightning Wallet          Envoyer à:                 Envoyer 500 sats à
 ## Architecture
 
 ```
-Feature phone ──USSD──▶ Africa's Talking ──HTTPS POST /ussd?key=…──▶ Gateway (FastAPI) ──REST──▶ LNbits ──▶ Lightning
+Feature phone ──USSD──▶ Africa's Talking ──HTTPS POST /ussd/<secret>──▶ Gateway (FastAPI) ──REST──▶ LNbits ──▶ Lightning
       ▲                        │                                       │      │                    │
       └──────── SMS ───────────┘◀──────────── SMS API ─────────────────┘   Redis ◀── paid webhook ─┘
                                                                      (sessions, phone wallets)
@@ -57,7 +57,13 @@ Each keypress is one HTTP request. The gateway is stateless; sessions and phone 
 
 ## Run it locally (real Lightning, no real money)
 
-Requirements: Docker with Compose, `jq`, `openssl`.
+**You need:**
+
+- Linux, macOS, or Windows with WSL2 (run the commands inside the WSL2 shell)
+- Docker with Compose v2 (`docker compose version` should print v2.x; Docker Desktop includes it)
+- `curl`, `jq` and `openssl` (Ubuntu/Debian: `sudo apt install curl jq openssl`; macOS: `brew install jq`)
+- Ports **8000** (gateway and demo) and **5000** (LNbits) free
+- About 2.5 GB of disk for the Docker images
 
 ```bash
 git clone https://github.com/Manuelshub/USSD-LNbits-gateway.git
@@ -65,7 +71,16 @@ cd USSD-LNbits-gateway
 scripts/regtest_bootstrap.sh
 ```
 
-That one command (about 40 seconds on a fresh clone) starts a private **regtest** Lightning network and everything on top of it:
+The first run downloads about 2 GB of Docker images and builds the gateway, which takes a few minutes depending on your connection. After that it takes under a minute. No configuration is needed: the script creates `.env`, the operator wallet and all secrets itself. It ends with:
+
+```
+Done.
+  channel: outside-world -> ussd-operator, 15000000 sats
+  operator LNbits wallet: 1000000 sats, received over Lightning
+  open http://localhost:8000/demo
+```
+
+That one command starts a private **regtest** Lightning network and everything on top of it:
 
 - `bitcoind` (regtest) and two LND nodes: **ussd-operator**, the operator's node that LNbits runs on, and **outside-world**, standing in for every other Lightning wallet on the internet
 - a 15,000,000 sat channel between them, with balance on both sides
@@ -84,16 +99,33 @@ Demo script:
 
 The phone list is kept in your browser; removing a phone does not delete its wallet.
 
-After restarting Docker, run `scripts/regtest_bootstrap.sh` again (a few seconds; it reconnects the nodes). `scripts/reset_demo.sh` forgets all demo phones for a clean recording.
+From a terminal instead of the browser (the stack must be running; Python 3 standard library only): `python3 scripts/ussd_sim.py --phone +221771234567`.
 
-From a terminal instead of the browser: `python scripts/ussd_sim.py --phone +221771234567`.
+**Check everything at once:** `python3 scripts/system_test.py` runs about 60 checks against the running stack in under 30 seconds (see [Tests](#tests)). Every line should say `PASS`.
 
-**Lighter mode:** `docker compose up -d` alone runs LNbits on FakeWallet (no Lightning nodes). Balances are then ledger entries; `scripts/setup_demo.sh` credits the operator wallet for the demo faucet.
+**Day-to-day commands**
+
+| Task | Command |
+|---|---|
+| Start again after a reboot or Docker restart | `scripts/regtest_bootstrap.sh` (safe to rerun; keeps wallets and the channel) |
+| Forget all demo phones (clean slate for a demo) | `scripts/reset_demo.sh` |
+| Stop everything | `docker compose -f docker-compose.yml -f docker-compose.regtest.yml stop` |
+| Delete everything, including wallets and the chain | `docker compose -f docker-compose.yml -f docker-compose.regtest.yml down -v && rm .env` |
+| Gateway logs | `docker compose logs -f gateway` |
+
+**Troubleshooting**
+
+- *"port is already allocated"*: something else uses port 8000 or 5000. Stop it, or change the left-hand port in `docker-compose.yml`.
+- *"Timed out waiting for ..."*: Docker was slow to start a container (common on the first run). Run `scripts/regtest_bootstrap.sh` again; it picks up where it stopped.
+- *The demo page doesn't load*: check `curl http://localhost:8000/health`. It should say `"healthy"` with Redis and LNbits `"connected"`. If not, rerun the bootstrap script.
+- *Permission denied on docker*: on Linux, add yourself to the `docker` group or run the script with `sudo`.
 
 ## Going live with Africa's Talking
 
+Tested against the Africa's Talking sandbox: a USSD channel calling the gateway through an HTTPS tunnel, a phone in the AT simulator registering and receiving sats, and the "received" SMS delivered by AT's SMS API to the simulator. To try it yourself, use `AT_USERNAME=sandbox` with a sandbox API key, and the same callback format below.
+
 1. Deploy behind HTTPS and set `PUBLIC_URL=https://your-domain`.
-2. Set `USSD_CALLBACK_SECRET` and register `https://your-domain/ussd?key=<secret>` as the USSD callback (POST).
+2. Set `USSD_CALLBACK_SECRET` and register `https://your-domain/ussd/<secret>` as the USSD callback (POST); `/ussd?key=<secret>` also works.
 3. Set `AT_USERNAME` and `AT_API_KEY` for SMS, `USSD_CODE` to your shortcode.
 4. Allow your gateway's URL in LNbits' callback URL rules (Admin UI → Server) so paid alerts work.
 5. Keep `DEMO_MODE=false`, and run LNbits on a mainnet funding source (your own LND or CLN, Phoenixd, Blink...) instead of the regtest nodes.
@@ -107,7 +139,7 @@ All settings are listed in [.env.example](.env.example).
 | Threat | Mitigation |
 |---|---|
 | Someone else picks up the phone and sends money | 4-digit PIN on every payment, PBKDF2-SHA256 with a per-user salt, constant-time check. Weak PINs (1111, 1234...) refused. 3 wrong PINs lock sending for 30 minutes. |
-| A forged USSD request claims a victim's number | Africa's Talking doesn't sign callbacks, so `/ussd` requires a shared secret (`/ussd?key=...`, constant-time check). The gateway refuses to start without it unless `DEMO_MODE=true`. The PIN is still needed to move funds. |
+| A forged USSD request claims a victim's number | Africa's Talking doesn't sign callbacks, so `/ussd` requires a shared secret in the callback URL (`/ussd/<secret>`, constant-time check). The gateway refuses to start without it unless `DEMO_MODE=true`. The PIN is still needed to move funds. |
 | One user reaches another's wallet | One LNbits **account** per phone, not just a wallet. No shared fallback wallet. |
 | USSD users spend the operator's funds | The operator wallet is never bound to a phone. |
 | Fake "you received" SMS through the webhook | Secret webhook path, and the payment is re-checked with LNbits before any SMS goes out. |
@@ -120,19 +152,19 @@ All settings are listed in [.env.example](.env.example).
 - **SIM swap** gives an attacker the phone number, though they still need the PIN. Next: daily send limits and a recovery flow.
 - **A Lightning address reveals the phone number.** Next: optional aliases.
 - **Custodial by design:** the operator's LNbits holds users' funds, as with any USSD wallet. Run it as a community or cooperative you trust.
-- `DEMO_MODE=true` opens the `/demo` pages and faucet. Demo only.
+- `DEMO_MODE=true` opens the `/demo` pages, including the outside-world wallet. Demo only; the bootstrap script turns it on, production must leave it off.
 
 ## Tests
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/pytest
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/pytest -q          # 130 tests, about 20 s, no Docker needed
 ```
 
 With the regtest stack running, one script checks every component together (Lightning nodes and channel, LNbits, Redis, every menu, Lightning addresses, invoices by SMS, the paid webhook, PINs and lockout, cash out, the callback secret, log masking, 160-character screens, concurrent sessions and a gateway restart):
 
 ```bash
-.venv/bin/python scripts/system_test.py     # 60 checks, about 20 s
+python3 scripts/system_test.py     # about 60 checks, under 30 s; standard library only
 ```
 
 Unit, integration and property-based (Hypothesis) tests cover registration, PIN lockout, phone-to-phone sends, invoices by SMS, Lightning addresses, the webhook, the callback secret, log masking, and that every screen in both languages fits in 160 characters.

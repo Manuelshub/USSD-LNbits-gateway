@@ -232,3 +232,13 @@ class TestMenuCharacterLimit:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+@pytest.mark.unit
+def test_untranslated_remote_error_never_shown_in_english_to_french_user():
+    from src.menu_handler import format_error_menu
+
+    fr = format_error_menu("Callback rejected: amount below minimum", "fr")
+    assert "Callback" not in fr and fr.startswith("Une erreur est survenue")
+    assert format_error_menu("Insufficient balance", "fr").startswith("Solde insuffisant")
+    assert format_error_menu("Callback rejected", "en").startswith("Callback rejected")

@@ -24,7 +24,7 @@ services:
       - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
       - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-true}
       - AT_SENDER_ID=${AT_SENDER_ID:-}
-      - USSD_CODE=${USSD_CODE:-}
+      - USSD_CODE=${USSD_CODE:-*384*96#}
     depends_on:
       redis:
         condition: service_healthy
@@ -51,7 +51,8 @@ services:
 
   # LNbits instance
   lnbits:
-    image: lnbits/lnbits:latest
+    # LNbits v1.6.2, pinned to the exact image this project was tested with
+    image: lnbits/lnbits@sha256:0bcc90efd497caf7ba3e65fc8b0515192fd6cccd4436b145c09c962f242d8536
     ports:
       - "5000:5000"
     environment:

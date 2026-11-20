@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-command demo on real Lightning (regtest, no real money). Safe to rerun.
 #
-#   0. Create .env if needed, with an operator wallet and demo settings.
+#   0. Create .env if needed, with an operator wallet, fresh secrets and demo
+#      settings.
 #   1. Mine spendable coins on bitcoind.
 #   2. Fund lnd-world (the outside Lightning network) and lnd-operator.
 #   3. Open a channel lnd-world -> lnd-operator, pushing part of it to the
@@ -30,11 +31,17 @@ wait_for() {  # wait_for <description> <command...>
 
 env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2-; }
 env_set() {  # env_set KEY VALUE: replace or append
-  if grep -qE "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi
+  # No "sed -i": it differs between GNU (Linux) and BSD (macOS) sed.
+  if grep -qE "^$1=" .env; then
+    sed "s|^$1=.*|$1=$2|" .env > .env.tmp && mv .env.tmp .env
+  else
+    echo "$1=$2" >> .env
+  fi
 }
 
 [ -f .env ] || cp .env.example .env
 [ -n "$(env_get WEBHOOK_SECRET)" ] || env_set WEBHOOK_SECRET "$(openssl rand -hex 24)"
+[ -n "$(env_get USSD_CALLBACK_SECRET)" ] || env_set USSD_CALLBACK_SECRET "$(openssl rand -hex 24)"
 [ -n "$(env_get PUBLIC_URL)" ] || env_set PUBLIC_URL http://localhost:8000
 env_set DEMO_MODE true
 

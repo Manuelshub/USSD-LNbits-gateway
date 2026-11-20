@@ -36,7 +36,7 @@ class Config:
     public_url: str = ""
     # Country code prepended to local numbers typed on the keypad.
     default_country_code: str = "221"
-    # Shared secret Africa's Talking appends to the callback URL (?key=...).
+    # Shared secret Africa's Talking appends to the callback URL (/ussd/<secret> or ?key=...).
     ussd_callback_secret: str = ""
     # Base URL LNbits uses to reach the gateway for paid-invoice webhooks.
     webhook_base_url: str = "http://gateway:8000"
@@ -207,7 +207,7 @@ class ConfigManager:
         if config.log_level.upper() not in valid_levels:
             errors.append(f"LOG_LEVEL must be one of: {', '.join(valid_levels)}")
         
-        # Requirement 8.6: Validate that secrets are never logged
+        # Secrets (admin and invoice keys) must never be logged
         # This is a compile-time check that ensures the logging configuration
         # is secure and secrets will always be masked
         ConfigManager._validate_secret_masking()
@@ -219,9 +219,7 @@ class ConfigManager:
         """
         Validate that the logging configuration ensures secrets are masked.
         
-        This validates Requirement 8.6: THE USSD_Gateway SHALL NOT log or 
-        display full Admin_Key or Invoice_Key values in any user-facing 
-        output or logs.
+        The gateway never logs or displays full admin or invoice keys.
         
         The masking is enforced by:
         1. ConfigManager.format_config() always masks secrets by default
@@ -234,6 +232,6 @@ class ConfigManager:
         # Log security validation checkpoint
         logger.debug(
             "Security validation: Secret masking enforced in config formatting "
-            "and LNbits client logging (Requirement 8.6)",
+            "and LNbits client logging",
             extra={'event_type': 'security_validation', 'requirement': '8.6'}
         )

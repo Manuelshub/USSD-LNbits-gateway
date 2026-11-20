@@ -99,6 +99,8 @@ _FR = {
     "LNbits service unavailable": "Service indisponible",
     "LNbits request timed out": "Délai dépassé",
     "Service unavailable": "Service indisponible",
+    "LNbits service unavailable": "Service indisponible",
+    "Invalid response from LNbits": "Service indisponible",
     "Unavailable": "Indisponible",
     "More:any key": "Suite:touche",
     # SMS
@@ -115,6 +117,11 @@ def tr(lang: str, text: str, **kwargs) -> str:
     """Translate ``text`` into ``lang`` and fill in ``{placeholders}``."""
     translated = _CATALOGS.get(lang, {}).get(text, text)
     return translated.format(**kwargs) if kwargs else translated
+
+
+def has_translation(lang: str, text: str) -> bool:
+    """True when ``text`` can be shown in ``lang`` (English always can)."""
+    return lang == DEFAULT_LANGUAGE or text in _CATALOGS.get(lang, {})
 
 
 def is_supported(lang: str) -> bool:

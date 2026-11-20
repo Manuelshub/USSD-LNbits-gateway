@@ -1,12 +1,10 @@
 """Structured logging configuration for USSD-LNbits Gateway.
 
 This module implements a standardized structured logging format across all
-components (Task 14.2, Requirements 8.5, 8.6). Logs are formatted in a
+components. Logs are formatted in a
 consistent key=value style with timestamps, log levels, module names, and
 contextual fields. Sensitive values (admin_key, invoice_key) are automatically
 masked to prevent secret leakage.
-
-Validates: Requirements 8.5, 8.6
 """
 
 import logging
@@ -29,7 +27,7 @@ class StructuredFormatter(logging.Formatter):
     - Consistent across all modules
     """
     
-    # Sensitive field names that should be masked in logs (Requirement 8.6)
+    # Sensitive field names that should be masked in logs
     SENSITIVE_FIELDS = {
         'admin_key', 'invoice_key', 'api_key', 'password', 'secret',
         'token', 'authorization', 'auth'
@@ -66,7 +64,7 @@ class StructuredFormatter(logging.Formatter):
         # Add extra fields from the record's __dict__ (set via extra={} in log calls)
         extra_fields = self._extract_extra_fields(record)
         for key, value in extra_fields.items():
-            # Mask sensitive fields (Requirement 8.6)
+            # Mask sensitive fields
             if key.lower() in self.SENSITIVE_FIELDS:
                 value = self._mask_value(str(value))
             elif key.lower() in self.PII_FIELDS and value:
@@ -136,8 +134,6 @@ class StructuredFormatter(logging.Formatter):
             
         Returns:
             Masked value (first 8 chars + "...")
-            
-        Validates: Requirement 8.6
         """
         if not value or len(value) <= 8:
             return "***"
@@ -188,8 +184,6 @@ def setup_logging(log_level: str = "INFO") -> None:
     
     Args:
         log_level: The logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        
-    Validates: Requirements 8.5, 8.6
     """
     # Handle mock objects in tests
     if not isinstance(log_level, str):
@@ -241,8 +235,7 @@ def log_audit_payment(
     """Log a payment operation for audit purposes.
     
     Standardized audit logging for all payment operations (invoice creation,
-    invoice payment, payment sending). Includes all required fields from
-    Requirement 8.5.
+    invoice payment, payment sending), each with the same fields.
     
     Args:
         logger: Logger instance to use
@@ -252,8 +245,6 @@ def log_audit_payment(
         payment_hash: Payment hash (will be masked to first 8 chars)
         success: Whether operation succeeded (optional)
         error: Error message if operation failed (optional)
-        
-    Validates: Requirement 8.5
     """
     # Mask payment hash to first 8 characters for logs
     masked_hash = payment_hash[:8] + "..." if len(payment_hash) > 8 else payment_hash
@@ -300,8 +291,6 @@ def log_api_error(
         error_code: Error code if available
         error_message: Human-readable error message
         **kwargs: Additional context fields
-        
-    Validates: Requirement 8.5, 8.6
     """
     extra_fields = {
         'event_type': 'api_error',
@@ -336,8 +325,6 @@ def mask_secret(value: str) -> str:
         
     Returns:
         Masked value
-        
-    Validates: Requirement 8.6
     """
     if not value or len(value) <= 8:
         return "***"

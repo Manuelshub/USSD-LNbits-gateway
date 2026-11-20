@@ -51,15 +51,15 @@ class LNbitsClient:
             invoice_key: Invoice/read API key (used for balance and invoice creation)
         
         Raises:
-            ValueError: If base_url is not HTTPS (Requirement 8.3)
+            ValueError: If base_url is not HTTPS
         """
-        # Requirement 8.3: Enforce HTTPS for all LNbits API communication
+        # Enforce HTTPS for LNbits API communication
         # Only allow http:// for localhost/127.0.0.1 (development)
         if not base_url.startswith("https://"):
             parsed = urlparse(base_url)
             if parsed.scheme != "http" or parsed.hostname not in _DEV_HTTP_HOSTS:
                 raise ValueError(
-                    "LNbits base_url must use HTTPS for security (Requirement 8.3). "
+                    "LNbits base_url must use HTTPS for security. "
                     f"Got: {base_url}"
                 )
             logger.warning(
@@ -247,7 +247,7 @@ class LNbitsClient:
         Decode a bolt11 Lightning invoice to extract its details.
 
         Uses the LNbits decode endpoint to parse the invoice server-side so no
-        additional bolt11 dependency is required (Requirement 5.2).
+        additional bolt11 dependency is required.
 
         Args:
             payment_request: The bolt11 invoice string to decode

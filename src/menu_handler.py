@@ -5,16 +5,16 @@ user's language) and the :class:`MenuHandler` state machine that drives
 registration, balance, receive, send, history and settings flows.
 """
 
-from src.i18n import tr
+from src.i18n import has_translation, tr
 from src.models import InputType, Invoice, Transaction, ValidationResult
 
 # Maximum amount (exclusive upper bound) accepted for an invoice, in satoshis.
-# Requirement 3.2 / Property 4: a valid amount is a positive integer that is
+# A valid amount is a positive integer that is
 # strictly less than 100,000,000 sats.
 MAX_AMOUNT_SATS = 100_000_000
 
 # Maximum length of any single USSD menu screen. Feature phones require menu
-# text to fit within 160 characters (Requirement 11.6, Property 8).
+# text to fit within 160 characters.
 MAX_MENU_CHARS = 160
 
 # BOLT11 prefixes per network (lnbcrt, regtest, starts with lnbc).
@@ -33,8 +33,6 @@ def validate_amount(input_text: str) -> ValidationResult:
     Returns:
         ValidationResult with ``parsed_value`` set to the integer amount on
         success, or an ``error_message`` describing why validation failed.
-
-    Validates: Requirements 3.2, 3.7
     """
     if input_text is None:
         return ValidationResult(
@@ -86,8 +84,6 @@ def validate_menu_choice(input_text: str, max_option: int) -> ValidationResult:
     Returns:
         ValidationResult with ``parsed_value`` set to the chosen integer on
         success, or an ``error_message`` on failure.
-
-    Validates: Requirements 11.2
     """
     if input_text is None:
         return ValidationResult(
@@ -132,8 +128,6 @@ def validate_invoice_string(input_text: str) -> ValidationResult:
     Returns:
         ValidationResult with ``parsed_value`` set to the normalized invoice
         string on success, or an ``error_message`` on failure.
-
-    Validates: Requirements 5.7, 9.5
     """
     if input_text is None:
         return ValidationResult(
@@ -182,8 +176,6 @@ def validate_input(input_text: str, expected_type: InputType, **kwargs) -> Valid
 
     Returns:
         ValidationResult produced by the matching validator.
-
-    Validates: Requirements 3.2, 3.7, 5.7, 11.2, 9.5
     """
     if expected_type == InputType.NUMERIC_AMOUNT:
         return validate_amount(input_text)
@@ -209,8 +201,6 @@ def format_balance(balance_sats: int, lang: str = "en") -> str:
 
     Returns:
         A display string such as ``"Balance: 1,234,567 sats"``.
-
-    Validates: Requirements 2.3
     """
     return tr(lang, "Balance: {amount} sats", amount=f"{balance_sats:,}")
 
@@ -228,8 +218,6 @@ def format_transaction(transaction: Transaction, lang: str = "en") -> str:
     Returns:
         A single-line display string, e.g.
         ``"received +1,000 sats 2024-01-15 14:30"``.
-
-    Validates: Requirements 6.2
     """
     sign = "+" if transaction.transaction_type == "received" else "-"
     amount_abs = abs(transaction.amount)
@@ -251,8 +239,6 @@ def format_invoice_display(invoice: Invoice) -> str:
 
     Returns:
         A display string guaranteed to be at most 160 characters long.
-
-    Validates: Requirements 11.6
     """
     header = f"Invoice: {invoice.amount:,} sats\n"
     footer = "\n0:Menu"
@@ -289,13 +275,16 @@ def format_error_menu(error_message: str, lang: str = "en") -> str:
     Returns:
         A display string with ``1:Retry`` and ``0:Menu`` options, at most 160
         characters long.
-
-    Validates: Requirements 11.6
     """
     options = "\n" + tr(lang, "1:Retry\n0:Menu")
     budget = MAX_MENU_CHARS - len(options)
 
-    message = tr(lang, (error_message or "An error occurred").strip())
+    message = (error_message or "An error occurred").strip()
+    # Errors relayed from LNbits or a remote wallet arrive as free English
+    # text; never show English to a French user, fall back to a generic line.
+    if not has_translation(lang, message):
+        message = "An error occurred"
+    message = tr(lang, message)
     if len(message) > budget:
         ellipsis = "..."
         if budget > len(ellipsis):
@@ -307,7 +296,7 @@ def format_error_menu(error_message: str, lang: str = "en") -> str:
     return display[:MAX_MENU_CHARS]
 
 # ---------------------------------------------------------------------------
-# MenuHandler state machine (Task 5.5)
+# MenuHandler state machine
 # ---------------------------------------------------------------------------
 
 from typing import List as _List, Optional as _Optional
@@ -323,7 +312,7 @@ from src.session_manager import SessionStoreError
 logger = get_logger(__name__)
 
 
-# Main menu options, numbered 1..N (Requirement 1.6, 11.1).
+# Main menu options, numbered 1..N.
 MAIN_MENU_OPTIONS = [
     (1, "Check Balance"),
     (2, "Receive Payment"),
@@ -351,7 +340,7 @@ _REGISTRATION_STATES = {
     MenuState.REGISTER_PIN_CONFIRM,
 }
 
-# Footer shown on submenus offering a return to the main menu (Requirement 11.3).
+# Footer shown on submenus offering a return to the main menu.
 _RETURN_FOOTER = "0:Menu"
 
 # Key used in Session.state_data to track the current pagination page index.
@@ -418,8 +407,6 @@ class MenuHandler:
             A :class:`MenuResponse` carrying the next screen's display text, a
             ``continue_session`` flag (``True`` to keep the session open,
             ``False`` to terminate), and the updated session.
-
-        Validates: Requirements 1.4, 1.6, 11.1, 11.3, 11.4, 11.6, 11.7
         """
         text = (user_input or "").strip()
         state = session.current_state
@@ -432,7 +419,7 @@ class MenuHandler:
             return self._go_to_main_menu(session)
 
         # The "0" key always returns to the main menu from any submenu
-        # (Requirement 11.3). It has no special meaning on the main menu
+        #. It has no special meaning on the main menu
         # itself, where numbering starts at 1.
         if state != MenuState.MAIN_MENU and text == "0":
             return self._go_to_main_menu(session)
@@ -442,7 +429,7 @@ class MenuHandler:
 
         # Balance flow: the session rests in CHECK_BALANCE only when the
         # previous LNbits call failed and an error screen (1:Retry / 0:Menu) is
-        # showing. Any key other than "0" retries (Requirement 2.5).
+        # showing. Any key other than "0" retries.
         if state == MenuState.CHECK_BALANCE:
             return self._enter_check_balance(session)
 
@@ -453,7 +440,7 @@ class MenuHandler:
         if state == MenuState.RECEIVE_MENU:
             return self._handle_receive_menu(session, text)
 
-        # Receive-payment flow (Requirements 3.1-3.8): amount entry, then an
+        # Receive-payment flow: amount entry, then an
         # invoice shown on INVOICE_DISPLAY (or delivered by SMS).
         if state in (MenuState.RECEIVE_PAYMENT, MenuState.AMOUNT_INPUT):
             return self._handle_amount_input(session, text)
@@ -474,7 +461,7 @@ class MenuHandler:
         if state == MenuState.SEND_AMOUNT_INPUT:
             return self._handle_send_amount_input(session, text)
 
-        # Send-to-invoice flow (Requirements 5.1-5.8).
+        # Send-to-invoice flow.
         if state in (MenuState.SEND_PAYMENT, MenuState.INVOICE_INPUT):
             return self._handle_invoice_input(session, text)
 
@@ -516,8 +503,6 @@ class MenuHandler:
         Returns:
             Menu text guaranteed to be at most :data:`MAX_MENU_CHARS` (160)
             characters long.
-
-        Validates: Requirements 1.6, 11.1, 11.3, 11.6, 11.7
         """
         data = data or {}
         page = int(data.get(_PAGE_KEY, 0))
@@ -561,7 +546,7 @@ class MenuHandler:
         else:
             text = self._with_return_footer(tr(lang, "Unavailable"), lang)
 
-        # Final guard: never exceed the USSD screen limit (Property 8).
+        # Final guard: never exceed the USSD screen limit.
         return text[:MAX_MENU_CHARS]
 
     def lightning_address(self, phone_number: str) -> str:
@@ -664,13 +649,13 @@ class MenuHandler:
             )
 
         # Balance inquiry performs an LNbits call immediately on entry
-        # (Requirements 2.1-2.4).
+        #.
         if next_state == MenuState.CHECK_BALANCE:
             session.current_state = MenuState.CHECK_BALANCE
             return self._enter_check_balance(session)
 
         # Receive: show the Lightning address when there is one, otherwise go
-        # straight to the amount prompt (Requirement 3.1).
+        # straight to the amount prompt.
         if next_state == MenuState.RECEIVE_PAYMENT:
             if self.lightning_domain:
                 session.current_state = MenuState.RECEIVE_MENU
@@ -682,7 +667,7 @@ class MenuHandler:
             return self._response(session, self._amount_prompt_text(lang), continue_session=True)
 
         # Send: choose phone number or invoice when accounts exist, otherwise
-        # prompt for the bolt11 invoice to pay (Requirement 5.1).
+        # prompt for the bolt11 invoice to pay.
         if next_state == MenuState.SEND_PAYMENT:
             if self.accounts is not None:
                 session.current_state = MenuState.SEND_MENU
@@ -691,7 +676,7 @@ class MenuHandler:
             return self._response(session, self._invoice_prompt_text(lang), continue_session=True)
 
         # Transaction history performs an LNbits call immediately on entry
-        # (Requirements 6.1-6.5).
+        #.
         if next_state == MenuState.TRANSACTION_HISTORY:
             session.current_state = MenuState.TRANSACTION_HISTORY
             return self._enter_transaction_history(session)
@@ -709,11 +694,11 @@ class MenuHandler:
     # -- balance inquiry ----------------------------------------------------
 
     def _enter_check_balance(self, session: Session) -> MenuResponse:
-        """Fetch and display the wallet balance (Requirements 2.1-2.5).
+        """Fetch and display the wallet balance.
 
         On :class:`~src.lnbits_client.LNbitsAPIError` the session stays in
         :class:`MenuState.CHECK_BALANCE` and an error screen offering
-        ``1:Retry`` / ``0:Menu`` is shown (Requirement 2.5).
+        ``1:Retry`` / ``0:Menu`` is shown.
         """
         try:
             balance_sats = self.lnbits_client.get_balance(session.wallet_id)
@@ -738,7 +723,7 @@ class MenuHandler:
     # -- transaction history ------------------------------------------------
 
     def _enter_transaction_history(self, session: Session) -> MenuResponse:
-        """Fetch and display the last 5 transactions (Requirements 6.1-6.5).
+        """Fetch and display the last 5 transactions.
 
         On :class:`~src.lnbits_client.LNbitsAPIError` the session stays in
         :class:`MenuState.TRANSACTION_HISTORY` with a retry/menu error screen.
@@ -794,7 +779,7 @@ class MenuHandler:
 
         result = validate_amount(text)
         if not result.valid:
-            # Invalid amount: show the error and re-prompt (Requirement 3.7).
+            # Invalid amount: show the error and re-prompt.
             body = f"{tr(lang, result.error_message or 'Invalid amount')}\n{self._amount_prompt_text(lang)}"
             session.state_data = {_PAGE_KEY: 0}
             return self._response(session, body, continue_session=True)
@@ -839,23 +824,23 @@ class MenuHandler:
             )
             sent_by_sms = True
 
-        # Store the invoice in session state (Requirement 3.5) and display it
-        # with check-status / main-menu options (Requirements 3.4, 3.6).
+        # Store the invoice in session state and display it
+        # with check-status / main-menu options.
         session.current_state = MenuState.INVOICE_DISPLAY
         session.state_data = {_PAGE_KEY: 0, "invoice": invoice, "sent_by_sms": sent_by_sms}
         return self._render_current_state(session)
 
     def _handle_invoice_display(self, session: Session, text: str) -> MenuResponse:
-        """Any key other than "0" checks the payment status (Requirement 3.6)."""
+        """Any key other than "0" checks the payment status."""
         session.current_state = MenuState.CHECK_PAYMENT_STATUS
         session.state_data[_PAGE_KEY] = 0
         return self._enter_check_payment_status(session)
 
     def _enter_check_payment_status(self, session: Session) -> MenuResponse:
-        """Query and display the invoice payment status (Requirements 4.1-4.5).
+        """Query and display the invoice payment status.
 
         On :class:`~src.lnbits_client.LNbitsAPIError` the session stays in
-        CHECK_PAYMENT_STATUS with a retry/menu error screen (Requirement 9.6).
+        CHECK_PAYMENT_STATUS with a retry/menu error screen.
         """
         session.current_state = MenuState.CHECK_PAYMENT_STATUS
 
@@ -885,7 +870,7 @@ class MenuHandler:
         session.state_data["paid"] = bool(status.get("paid", False))
         session.state_data["amount"] = status.get("amount")
 
-        # Requirement 8.5: Audit log when an invoice is paid (incoming payment)
+        # Audit log when an invoice is paid (incoming payment)
         if session.state_data["paid"]:
             log_audit_payment(
                 logger,
@@ -961,8 +946,7 @@ class MenuHandler:
     def _handle_invoice_input(self, session: Session, text: str) -> MenuResponse:
         """Validate and decode the entered invoice, then ask to confirm.
 
-        Implements the INVOICE_INPUT step of the send flow (Requirements
-        5.1-5.3, 5.7). With accounts, confirmation requires the user's PIN
+        Implements the INVOICE_INPUT step of the send flow. With accounts, confirmation requires the user's PIN
         (PIN_ENTRY); otherwise a plain "1:Confirm" screen is shown.
         """
         lang = session.language
@@ -974,7 +958,7 @@ class MenuHandler:
 
         result = validate_invoice_string(text)
         if not result.valid:
-            # Invalid invoice: show the error and re-prompt (Requirement 5.7).
+            # Invalid invoice: show the error and re-prompt.
             body = f"{tr(lang, result.error_message or 'Invalid invoice')}\n{self._invoice_prompt_text(lang)}"
             session.state_data = {_PAGE_KEY: 0}
             return self._response(session, body, continue_session=True)
@@ -1056,11 +1040,11 @@ class MenuHandler:
         return self._pay_invoice(session)
 
     def _pay_invoice(self, session: Session) -> MenuResponse:
-        """Pay the bolt11 invoice stored in the session (Requirements 5.4-5.6).
+        """Pay the bolt11 invoice stored in the session.
 
         Every payment attempt is written to the audit log with the phone
         number (masked), amount, payment hash, and timestamp, and never any key
-        material (Requirements 8.5, 8.6).
+        material.
         """
         payment_request = session.state_data.get("payment_request")
         amount = session.state_data.get("amount")
@@ -1099,7 +1083,7 @@ class MenuHandler:
 
         if not payment_result.success:
             # Failed payment: show the reason and return to invoice entry
-            # (Requirement 5.6).
+            #.
             session.current_state = MenuState.INVOICE_INPUT
             session.state_data = {_PAGE_KEY: 0}
             return self._error(session, payment_result.error_message or "Payment failed")
@@ -1179,7 +1163,7 @@ class MenuHandler:
 
     def _log_payment(self, session: Session, amount: _Optional[int],
                      payment_hash: _Optional[str], success: bool) -> None:
-        """Write a payment attempt to the audit log (Requirements 8.5, 8.6).
+        """Write a payment attempt to the audit log.
 
         Records the phone number (masked by the log formatter), amount,
         (masked) payment hash and a UTC timestamp. Never logs the full payment
@@ -1309,7 +1293,7 @@ class MenuHandler:
     # -- per-state text builders -------------------------------------------
 
     def _main_menu_text(self, lang: str = "en") -> str:
-        """Build the main menu text (Requirements 1.6, 11.1)."""
+        """Build the main menu text."""
         lines = [tr(lang, "Lightning Wallet")]
         for number, label in MAIN_MENU_OPTIONS:
             lines.append(f"{number}. {tr(lang, label)}")
@@ -1334,7 +1318,7 @@ class MenuHandler:
         return self._with_return_footer(body, lang)
 
     def _amount_prompt_text(self, lang: str = "en") -> str:
-        """Prompt for the amount to receive (Requirement 3.1)."""
+        """Prompt for the amount to receive."""
         return self._with_return_footer(tr(lang, "Enter amount in sats:\n(Example: 1000)"), lang)
 
     def _receive_menu_text(self, data: dict, lang: str = "en") -> str:
@@ -1358,7 +1342,7 @@ class MenuHandler:
         return self._with_return_footer("\n".join(lines), lang)
 
     def _invoice_display_text(self, data: dict, lang: str = "en") -> str:
-        """Text for the generated-invoice screen (Requirements 3.4, 3.6).
+        """Text for the generated-invoice screen.
 
         When the invoice went out by SMS the screen says so. Otherwise it
         shows the amount, a truncated payment hash and as much of the payment
@@ -1400,7 +1384,7 @@ class MenuHandler:
         return f"{payment_hash[:8]}...{payment_hash[-4:]}"
 
     def _payment_status_text(self, data: dict, lang: str = "en") -> str:
-        """Text for the invoice payment-status screen (Requirements 4.3, 4.4)."""
+        """Text for the invoice payment-status screen."""
         paid = data.get("paid")
         if paid is True:
             amount = data.get("amount")
@@ -1415,7 +1399,7 @@ class MenuHandler:
         return self._with_return_footer(body, lang)
 
     def _invoice_prompt_text(self, lang: str = "en") -> str:
-        """Prompt for a bolt11 invoice to pay (Requirement 5.1)."""
+        """Prompt for a bolt11 invoice to pay."""
         return self._with_return_footer(tr(lang, "Enter invoice to pay:"), lang)
 
     def _confirm_line(self, data: dict, lang: str) -> str:
@@ -1505,7 +1489,7 @@ class MenuHandler:
         """Return a single page of ``full_text`` within the char limit.
 
         When the content spans multiple screens a "More" hint and page counter
-        are appended (Requirement 11.7, Property 9).
+        are appended.
         """
         pages = self._split_pages(full_text, lang)
         if page < 0 or page >= len(pages):
