@@ -130,3 +130,23 @@ def test_access_log_filter_masks_phone_in_path():
     line = record.getMessage()
     assert "771234567" not in line
     assert "/lnurlp/221*******67" in line
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("path", [
+    "/ussd/1ad49eb20be9497f17ff28b8872afa7",
+    "/ussd?key=1ad49eb20be9497f17ff28b8872afa7",
+    "/webhooks/lnbits/1ad49eb20be9497f17ff28b8872afa7",
+])
+def test_access_log_filter_redacts_callback_secrets(path):
+    import logging
+    from src.logging_config import AccessLogPrivacyFilter
+
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+        ("1.2.3.4:5", "POST", path, "1.1", 200), None,
+    )
+    AccessLogPrivacyFilter().filter(record)
+    line = record.getMessage()
+    assert "1ad49" not in line and "afa7" not in line
+    assert "<redacted>" in line

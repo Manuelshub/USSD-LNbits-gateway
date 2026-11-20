@@ -344,6 +344,8 @@ class TestSecurityEndpoints:
         form = {"sessionId": "x1", "serviceCode": "*384*96#", "phoneNumber": ALICE, "text": ""}
         assert client.post("/ussd", data=form).status_code == 403
         assert client.post("/ussd?key=wrong", data=form).status_code == 403
+        assert client.post("/ussd/wrong", data=form).status_code == 403
+        assert client.post("/ussd/s3cret", data=form).status_code == 200
         ok = client.post("/ussd?key=s3cret", data=form)
         assert ok.status_code == 200 and ok.text.startswith("CON ")
 

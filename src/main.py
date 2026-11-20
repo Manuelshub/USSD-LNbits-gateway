@@ -265,12 +265,14 @@ async def health_check():
 
 
 @app.post("/ussd", response_class=PlainTextResponse)
+@app.post("/ussd/{path_key}", response_class=PlainTextResponse)
 async def ussd_callback(
     sessionId: str = Form(...),
     serviceCode: str = Form(...),
     phoneNumber: str = Form(...),
     text: str = Form(default=""),
     key: str = Query(default=""),
+    path_key: str = "",
 ):
     """
     USSD webhook callback from Africa's Talking.
@@ -283,6 +285,8 @@ async def ussd_callback(
             with each step joined by "*"
         key: Shared secret from the callback URL (``/ussd?key=...``); required
             when USSD_CALLBACK_SECRET is set
+        path_key: The same secret as a path segment (``/ussd/<secret>``), for
+            dashboards that reject callback URLs with a query string
 
     Returns:
         Plain text response: "CON ..." to continue or "END ..." to terminate
@@ -292,7 +296,8 @@ async def ussd_callback(
     # Africa's Talking does not sign callbacks, so without this secret anyone
     # could POST here with someone else's phone number.
     secret = config.ussd_callback_secret if config is not None else ""
-    if secret and not hmac.compare_digest(key, secret):
+    supplied = path_key or key
+    if secret and not hmac.compare_digest(supplied, secret):
         logger.warning(
             "USSD callback with a wrong or missing key",
             extra={'event_type': 'auth_failure', 'session_id': sessionId}

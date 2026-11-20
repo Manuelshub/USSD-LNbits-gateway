@@ -154,6 +154,16 @@ def _mask_digits_in_url(path: str) -> str:
     )
 
 
+# Callback secrets travel in the URL (/ussd/<secret>, /ussd?key=<secret>,
+# /webhooks/lnbits/<secret>), so they must never reach the access log.
+_SECRET_IN_URL_RE = re.compile(r"(/ussd/|/webhooks/lnbits/|[?&]key=)[^/?&#\s]+")
+
+
+def _redact_secrets_in_url(path: str) -> str:
+    """Replace URL-borne callback secrets with ``<redacted>``."""
+    return _SECRET_IN_URL_RE.sub(lambda m: f"{m.group(1)}<redacted>", path)
+
+
 class AccessLogPrivacyFilter(logging.Filter):
     """Masks phone numbers in uvicorn access-log lines.
 
@@ -165,7 +175,7 @@ class AccessLogPrivacyFilter(logging.Filter):
         # uvicorn.access args: (client_addr, method, path, http_version, status)
         if isinstance(record.args, tuple) and len(record.args) >= 3:
             args = list(record.args)
-            args[2] = _mask_digits_in_url(str(args[2]))
+            args[2] = _mask_digits_in_url(_redact_secrets_in_url(str(args[2])))
             record.args = tuple(args)
         return True
 
